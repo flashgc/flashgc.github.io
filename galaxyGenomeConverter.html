@@ -54,19 +54,19 @@
     <h2>Склеивание сохранений SOL</h2>
     
     <div class="file-group">
-        <label for="googleFile">1. Файл от Google Play версии:</label>
+        <label for="googleFile">1. Файл от Google Play версии (можно просто начать новую игру и сразу создать бэкап):</label>
         <input type="file" id="googleFile" accept=".SOL">
     </div>
 
     <div class="file-group">
-        <label for="rustoreFile">2. Файл от RuStore версии:</label>
+        <label for="rustoreFile">2. Файл от RuStore версии (то что надо перенести):</label>
         <input type="file" id="rustoreFile" accept=".SOL">
     </div>
 
     <button id="processBtn" disabled>Конвертировать и Скачать</button>
 </div>
 
-<div class="footer">Работает локально в браузере через GitHub Pages</div>
+<div class="footer">Переименуйте готовый файл в Save1.SOL (или Save2.SOL, или Save3.SOL) и  закиньте в папку с бэкапами и восстановите сейвы.</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {

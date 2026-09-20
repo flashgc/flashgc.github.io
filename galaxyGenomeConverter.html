@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конвертер сохранений SOL</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1);
+        }
+        h2 { margin-top: 0; color: #111; font-size: 22px; text-align: center; }
+        .file-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; }
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        button:hover:not(:disabled) { background: #0056b3; }
+        button:disabled { background: #cccccc; cursor: not-allowed; }
+        .footer { margin-top: 20px; text-align: center; font-size: 12px; color: #777; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Склеивание сохранений SOL</h2>
+    
+    <div class="file-group">
+        <label for="googleFile">1. Файл от Google Play версии:</label>
+        <input type="file" id="googleFile" accept=".SOL">
+    </div>
+
+    <div class="file-group">
+        <label for="rustoreFile">2. Файл от RuStore версии:</label>
+        <input type="file" id="rustoreFile" accept=".SOL">
+    </div>
+
+    <button id="processBtn" disabled>Конвертировать и Скачать</button>
+</div>
+
+<div class="footer">Работает локально в браузере через GitHub Pages</div>
+
+<script>
+const googleInput = document.getElementById('googleFile');
+const rustoreInput = document.getElementById('rustoreFile');
+const processBtn = document.getElementById('processBtn');
+
+const XOR_KEY = "QiCR/HYuxqk2jFapOa64ow==";
+const PASSWORD = 407;
+
+// Включаем кнопку только при наличии обоих файлов
+function checkInputs() {
+    processBtn.disabled = !(googleInput.files.length && rustoreInput.files.length);
+}
+googleInput.addEventListener('change', checkInputs);
+rustoreInput.addEventListener('change', checkInputs);
+
+processBtn.addEventListener('click', async () => {
+    try {
+        const googleBytes = new Uint8Array(await googleInput.files.arrayBuffer());
+        const rustoreBytes = new Uint8Array(await rustoreInput.files.arrayBuffer());
+
+        // 1. Дешифруем оба файла с помощью XOR
+        const decGoogle = applyXor(googleBytes, XOR_KEY);
+        const decRustore = applyXor(rustoreBytes, XOR_KEY);
+
+        // 2. Разбираем Google-файл, чтобы достать зашифрованный ID
+        const viewG = new DataView(decGoogle.buffer);
+        const gStringLen = viewG.getUint16(0, false); // readUTF читает 2 байта длины (Big Endian)
+        
+        // Нам даже не нужно расшифровывать сам ID через пароль 407! 
+        // Мы можем просто забрать кусок байт [длина строки (2 байта) + сами символы строки]
+        const googleIdBlock = decGoogle.slice(0, 2 + gStringLen);
+
+        // 3. Разбираем RuStore-файл, чтобы отрезать его старый ID
+        const viewR = new DataView(decRustore.buffer);
+        const rStringLen = viewR.getUint16(0, false);
+        
+        // Отрезаем ID Рустора и забираем «чистые» бинарные данные самого сохранения
+        const rustoreSaveData = decRustore.slice(2 + rStringLen);
+
+        // 4. Собираем новый расшифрованный файл: [Блок ID от Google] + [Данные сохранения от RuStore]
+        const newDecrypted = new Uint8Array(googleIdBlock.length + rustoreSaveData.length);
+        newDecrypted.set(googleIdBlock, 0);
+        newDecrypted.set(rustoreSaveData, googleIdBlock.length);
+
+        // 5. Зашифровываем файл обратно тем же XOR-алгоритмом
+        const finalEncrypted = applyXor(newDecrypted, XOR_KEY);
+
+        // 6. Скачиваем результат
+        downloadBlob(finalEncrypted, 'SaveNew.SOL', 'application/octet-stream');
+        
+    </div> catch (e) {
+        alert("Произошла ошибка при обработке файлов: " + e.message);
+        console.error(e);
+    }
+});
+
+// Реализация циклического XOR, полностью повторяющая encrypter.applyXor из AS3
+function applyXor(inputBuffer, keyStr) {
+    // Переводим ключ-строку в байты (UTF-8)
+    const encoder = new TextEncoder();
+    const keysBuffer = encoder.encode(keyStr);
+    
+    const outBuffer = new Uint8Array(inputBuffer.length);
+    
+    for (let position = 0; position < inputBuffer.length; position++) {
+        const offset = position % keysBuffer.length;
+        const inChar = inputBuffer[position];
+        const bitMask = keysBuffer[offset];
+        const outChar = bitMask ^ inChar;
+        outBuffer[position] = outChar;
+    }
+    
+    return outBuffer;
+}
+
+// Функция для инициации скачивания файла браузером
+function downloadBlob(data, fileName, mimeType) {
+    const blob = new Blob([data], { type: mimeType });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
